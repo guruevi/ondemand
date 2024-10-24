@@ -1,3 +1,4 @@
+import {analyticsPath} from "./config";
 
 export function cssBadgeForState(state){
   switch (state) {
@@ -79,4 +80,35 @@ export function openLinkInJs(event) {
     alertDiv.innerHTML = html.split("ALERT_MSG").join(msg);
     mainDiv.prepend(alertDiv);
   }
+}
+
+// Helper method to set an element's innerHTML property
+// and evaluate any <script> tags that may exist within it.
+// Just setting innerHTML of an html element does not re-evaluate
+// the <script> tags that it may hold.
+export function setInnerHTML(element, html) {
+  element.innerHTML = html;
+  const scripts = Array.from(element.querySelectorAll("script"));
+
+  scripts.forEach(currentElement => {
+    const newElement = document.createElement("script");
+
+    Array.from(currentElement.attributes).forEach( attr => {
+      newElement.setAttribute(attr.name, attr.value);
+    });
+
+    const scriptText = document.createTextNode(currentElement.innerHTML);
+    newElement.appendChild(scriptText);
+
+    currentElement.parentNode.replaceChild(newElement, currentElement);
+  });
+}
+
+// Helper method to report errors from the front end via AJAX
+export function reportErrorForAnalytics(path, error) {
+  // error - report back for analytics purposes
+  const analyticsUrl = new URL(analyticsPath(path), document.location);
+  analyticsUrl.searchParams.append('error', error);
+  // Fire and Forget
+  fetch(analyticsUrl);
 }
