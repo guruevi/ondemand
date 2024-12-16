@@ -10,6 +10,7 @@ const EVENTNAME = {
 };
 
 const CONTENTID = '#directory-contents';
+const SPINNERID = '#tloading_spinner';
 
 let table = null;
 
@@ -61,7 +62,7 @@ jQuery(function () {
 
     $('#select_all').on('click', function() {
         if ($(this).is(":checked")) {
-            table.getTable().rows().select();
+            table.getTable().rows({ search: 'applied' }).select();
         } else {
             table.getTable().rows().deselect();
         }
@@ -221,6 +222,9 @@ class DataTable {
                     data: null,
                     orderable: false,
                     defaultContent: '<input type="checkbox">',
+                    render: (data, type, row, meta) => {
+                        return `<input type='checkbox' data-dl-url='${row.download_url}'>`;
+                    }
                 },
                 { data: 'type', render: (data, type, row, meta) => data == 'd' ? '<span title="directory" class="fa fa-folder" style="color: gold"><span class="sr-only"> dir</span></span>' : '<span title="file" class="fa fa-file" style="color: lightgrey"><span class="sr-only"> file</span></span>' }, // type
                 { name: 'name', data: 'name', className: 'text-break', render: (data, type, row, meta) => `<a class="${row.type} name ${row.type == 'd' ? '' : 'view-file'}" href="${row.url}">${Handlebars.escapeExpression(data)}</a>` }, // name
@@ -269,6 +273,8 @@ class DataTable {
     async reloadTable(url) {
         var request_url = url || history.state.currentDirectoryUrl;
 
+        this.toggleSpinner();
+
         try {
             const response = await fetch(request_url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
             const data = await this.dataFromJsonResponse(response);
@@ -297,7 +303,10 @@ class DataTable {
                         table.getTable().row(this.closest('tr')).deselect();
                     }
                 }
-            })
+            });
+
+            this.toggleSpinner();
+
             return result;
         } catch (e) {
             const eventData = {
@@ -308,10 +317,17 @@ class DataTable {
             $(CONTENTID).trigger(SWAL_EVENTNAME.showError, eventData);
 
             $('#open-in-terminal-btn').addClass('disabled');
+
+            this.toggleSpinner()
             
             // Removed this as it was causing a JS Error and there is no reprocution from removing it.
             // return await Promise.reject(e);
         }
+    }
+
+    toggleSpinner() {
+        document.querySelector(SPINNERID).classList.toggle('d-none');
+        document.querySelector(CONTENTID).classList.toggle('d-none');
     }
 
     updateDotFileVisibility() {

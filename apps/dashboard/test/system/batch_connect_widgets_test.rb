@@ -72,6 +72,119 @@ class BatchConnectWidgetsTest < ApplicationSystemTestCase
     end
   end
 
+  test 'path_selector can filter by file type matching an expression' do
+    Dir.mktmpdir do |dir|
+      "#{dir}/app".tap { |d| Dir.mkdir(d) }
+      SysRouter.stubs(:base_path).returns(Pathname.new(dir))
+      stub_scontrol
+      stub_sacctmgr
+      stub_git("#{dir}/app")
+      
+      Tempfile.new("test.py", "#{Rails.root}/tmp")
+      Tempfile.new("test.rb", "#{Rails.root}/tmp")
+
+      form = <<~HEREDOC
+        ---
+        cluster:
+          - owens
+        form:
+          - path
+        attributes:
+          path:
+            widget: 'path_selector'
+            directory: "#{Rails.root}/tmp"
+            show_files: true
+            file_pattern: \.py
+      HEREDOC
+
+      Pathname.new("#{dir}/app/").join('form.yml').write(form)
+      base_id = 'batch_connect_session_context_path'
+
+      visit new_batch_connect_session_context_url('sys/app')
+
+      click_on 'Select Path'
+
+      table_id = "batch_connect_session_context_path_path_selector_table"
+      shown_dirs_and_files = find_all("##{table_id} tr td").map { |td| td["innerHTML"] }
+
+      assert shown_dirs_and_files.any? { |file| file.match("test.py") }
+      refute shown_dirs_and_files.any? { |file| file.match("test.rb") }    
+    end
+  end
+
+  test 'path_selector handles invalid regular expressions' do
+    Dir.mktmpdir do |dir|
+      "#{dir}/app".tap { |d| Dir.mkdir(d) }
+      SysRouter.stubs(:base_path).returns(Pathname.new(dir))
+      stub_scontrol
+      stub_sacctmgr
+      stub_git("#{dir}/app")
+      
+      Tempfile.new("test.py", "#{Rails.root}/tmp")
+      Tempfile.new("test.rb", "#{Rails.root}/tmp")
+
+      form = <<~HEREDOC
+        ---
+        cluster:
+          - owens
+        form:
+          - path
+        attributes:
+          path:
+            widget: 'path_selector'
+            directory: "#{Rails.root}/tmp"
+            show_files: true
+            file_pattern: \.doesn't(compile
+      HEREDOC
+
+      Pathname.new("#{dir}/app/").join('form.yml').write(form)
+      base_id = 'batch_connect_session_context_path'
+
+      visit new_batch_connect_session_context_url('sys/app')
+
+      find('.alert-danger')
+    end
+  end
+
+  test 'path_selector handles no provided file pattern' do
+    Dir.mktmpdir do |dir|
+      "#{dir}/app".tap { |d| Dir.mkdir(d) }
+      SysRouter.stubs(:base_path).returns(Pathname.new(dir))
+      stub_scontrol
+      stub_sacctmgr
+      stub_git("#{dir}/app")
+      
+      Tempfile.new("test.py", "#{Rails.root}/tmp")
+      Tempfile.new("test.rb", "#{Rails.root}/tmp")
+
+      form = <<~HEREDOC
+        ---
+        cluster:
+          - owens
+        form:
+          - path
+        attributes:
+          path:
+            widget: 'path_selector'
+            directory: "#{Rails.root}/tmp"
+            show_files: true
+      HEREDOC
+
+      Pathname.new("#{dir}/app/").join('form.yml').write(form)
+      base_id = 'batch_connect_session_context_path'
+
+      visit new_batch_connect_session_context_url('sys/app')
+
+      click_on 'Select Path'
+
+      table_id = "batch_connect_session_context_path_path_selector_table"
+      shown_dirs_and_files = find_all("##{table_id} tr td").map { |td| td["innerHTML"] }
+
+      assert shown_dirs_and_files.any? { |file| file.match("test.py") }
+      assert shown_dirs_and_files.any? { |file| file.match("test.rb") } 
+    end
+  end
+
   test 'data-label-* allows select options to dynamically change the label of another form element' do
     Dir.mktmpdir do |dir|
       "#{dir}/app".tap { |d| Dir.mkdir(d) }
@@ -241,6 +354,79 @@ class BatchConnectWidgetsTest < ApplicationSystemTestCase
       # select bar, and now aa_b_cc is available.
       select('bar', from: bc_ele_id('aa'))
       assert(find("##{bc_ele_id('aa_b_cc')}").visible?)
+    end
+  end
+
+  test 'radio_buttons accept scalar and array options' do
+    Dir.mktmpdir do |dir|
+      form = <<~HEREDOC
+        ---
+        cluster:
+          - owens
+        form:
+          - scalar
+          - vector
+        attributes:
+          scalar:
+            widget: radio_button
+            options:
+              - one
+              - two
+          vector:
+            widget: radio_button
+            options:
+              - [Three, three]
+              - [Four, four]
+      HEREDOC
+
+      make_bc_app(dir, form)
+      visit new_batch_connect_session_context_url('sys/app')
+
+      # values are all lowercase
+      assert_equal('one', find("##{bc_ele_id('scalar_one')}").value)
+      assert_equal('two', find("##{bc_ele_id('scalar_two')}").value)
+      assert_equal('three', find("##{bc_ele_id('vector_three')}").value)
+      assert_equal('four', find("##{bc_ele_id('vector_four')}").value)
+
+      # one and two's labels are lowercase, but Three and Four have uppercase labels.
+      assert_equal('one', find("[for='#{bc_ele_id('scalar_one')}']").text)
+      assert_equal('two', find("[for='#{bc_ele_id('scalar_two')}']").text)
+      assert_equal('Three', find("[for='#{bc_ele_id('vector_three')}']").text)
+      assert_equal('Four', find("[for='#{bc_ele_id('vector_four')}']").text)
+    end
+  end
+
+  test 'auto modules something' do
+    Dir.mktmpdir do |dir|
+      with_modified_env({ OOD_MODULE_FILE_DIR: 'test/fixtures/modules' }) do
+        form = <<~HEREDOC
+          cluster: owens
+          form:
+          - auto_modules_R
+          - module_hider
+          attributes:
+            module_hider:
+              widget: select
+              options:
+                - ['show', 'show']
+                - ['hide', 'hide',	data-hide-auto-modules-r: true]
+        HEREDOC
+
+        make_bc_app(dir, form)
+        visit new_batch_connect_session_context_url('sys/app')
+
+        # just to be sure auto_modules_r actually populates with module options
+        assert_equal(20, find_all_options('auto_modules_r', nil).size)
+        assert(find("##{bc_ele_id('auto_modules_r')}").visible?)
+
+        # select hide and auto_modules_r isn't visible anymore.
+        select('hide', from: bc_ele_id('module_hider'))
+        refute(find("##{bc_ele_id('auto_modules_r')}", visible: :hidden).visible?)
+
+        # select show and it's back.
+        select('show', from: bc_ele_id('module_hider'))
+        assert(find("##{bc_ele_id('auto_modules_r')}").visible?)
+      end
     end
   end
 end

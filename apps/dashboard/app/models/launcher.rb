@@ -9,18 +9,18 @@ class Launcher
   attr_reader :title, :id, :created_at, :project_dir, :smart_attributes
 
   class << self
-    def scripts_dir(project_dir)
-      Pathname.new("#{project_dir}/.ondemand/scripts")
+    def launchers_dir(project_dir)
+      Pathname.new("#{project_dir}/.ondemand/launchers")
     end
 
     def find(id, project_dir)
-      script_path = Launcher.script_path(project_dir, id)
-      file = script_form_file(script_path)
+      path = Launcher.path(project_dir, id)
+      file = launcher_form_file(path)
       Launcher.from_yaml(file, project_dir)
     end
 
     def all(project_dir)
-      Dir.glob("#{scripts_dir(project_dir).to_s}/*/form.yml").map do |file|
+      Dir.glob("#{launchers_dir(project_dir).to_s}/*/form.yml").map do |file|
         Launcher.from_yaml(file, project_dir)
       end.compact.sort_by do |s|
         s.created_at
@@ -37,7 +37,7 @@ class Launcher
 
       new(opts)
     rescue StandardError, Errno::ENOENT => e
-      Rails.logger.warn("Did not find script due to error #{e}")
+      Rails.logger.warn("Did not find launcher due to error #{e}")
       nil
     end
 
@@ -149,26 +149,26 @@ class Launcher
     return false unless valid?(:save)
 
     @created_at = Time.now.to_i if @created_at.nil?
-    script_path = Launcher.script_path(project_dir, id)
+    path = Launcher.path(project_dir, id)
 
-    script_path.mkpath unless script_path.exist?
-    File.write(Launcher.script_form_file(script_path), to_yaml)
+    path.mkpath unless path.exist?
+    File.write(Launcher.launcher_form_file(path), to_yaml)
 
     true
   rescue StandardError => e
     errors.add(:save, e.message)
-    Rails.logger.warn("Cannot save script due to error: #{e.class}:#{e.message}")
+    Rails.logger.warn("Cannot save launcher due to error: #{e.class}:#{e.message}")
     false
   end
 
   def destroy
     return true unless id
-    script_path = Launcher.script_path(project_dir, id)
-    FileUtils.remove_dir(Launcher.script_path(project_dir, id)) if script_path.exist?
+    path = Launcher.path(project_dir, id)
+    FileUtils.remove_dir(Launcher.path(project_dir, id)) if path.exist?
     true
   rescue StandardError => e
     errors.add(:destroy, e.message)
-    Rails.logger.warn("Cannot delete script #{id} due to error: #{e.class}:#{e.message}")
+    Rails.logger.warn("Cannot delete launcher #{id} due to error: #{e.class}:#{e.message}")
     false
   end
 
@@ -221,20 +221,20 @@ class Launcher
 
   private
 
-  def self.script_path(root_dir, script_id)
-    unless script_id.to_s.match?(ID_REX)
-      raise(StandardError, "#{script_id} is invalid. Does not match #{ID_REX.inspect}")
+  def self.path(root_dir, launcher_id)
+    unless launcher_id.to_s.match?(ID_REX)
+      raise(StandardError, "#{launcher_id} is invalid. Does not match #{ID_REX.inspect}")
     end
 
-    Pathname.new(File.join(Launcher.scripts_dir(root_dir), script_id.to_s))
+    Pathname.new(File.join(Launcher.launchers_dir(root_dir), launcher_id.to_s))
   end
 
   def default_script_path
     Pathname(File.join(project_dir, 'hello_world.sh'))
   end
 
-  def self.script_form_file(script_path)
-    File.join(script_path, "form.yml")
+  def self.launcher_form_file(path)
+    File.join(path, "form.yml")
   end
 
   # parameters you got from the controller that affect the attributes, not form.
@@ -284,7 +284,7 @@ class Launcher
   end
 
   def cache_file_path
-    Pathname.new(File.join(Launcher.script_path(project_dir, id), "cache.json"))
+    Pathname.new(File.join(Launcher.path(project_dir, id), "cache.json"))
   end
 
   def cache_file_exists?
@@ -293,7 +293,7 @@ class Launcher
 
   def cached_values
     @cached_values ||= begin
-      cache_file_path = OodAppkit.dataroot.join(Launcher.scripts_dir("#{project_dir}"), "#{id}_opts.json")
+      cache_file_path = OodAppkit.dataroot.join(Launcher.launchers_dir("#{project_dir}"), "#{id}_opts.json")
       cache_file_content = File.read(cache_file_path) if cache_file_path.exist?
       
       File.exist?(cache_file_path) ? JSON.parse(cache_file_content) : {}
@@ -317,7 +317,13 @@ class Launcher
       sm
     end.map do |sm|
       sm.submit(fmt: render_format)
-    end.reduce(&:deep_merge)[:script]
+    end.reduce(&:deep_merge)[:script].merge(
+      # force some values for scripts like the 'workdir'. We could use auto
+      # attributes, but this is not optional and not variable.
+      {
+        workdir: project_dir.to_s
+      }
+    )
   end
 
   def adapter(cluster_id)

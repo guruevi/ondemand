@@ -219,6 +219,13 @@ class Project
     job
   end
 
+  def remove_logged_job(job_id, cluster)
+    old_job = jobs.detect { |j| j.id == job_id && j.cluster == cluster }
+    Project.delete_job!(directory, old_job)
+
+    jobs.none? { |j| j.id == job_id && j.cluster == cluster }
+  end
+
   def adapter(cluster_id)
     cluster = OodAppkit.clusters[cluster_id] || raise(StandardError, "Job specifies nonexistent '#{cluster_id}' cluster id.")
     cluster.job_adapter
@@ -230,7 +237,7 @@ class Project
   end
 
   private
-  
+
   def update_attrs(attributes)
     [:name, :description, :icon].each do |attribute|
       instance_variable_set("@#{attribute}".to_sym, attributes.fetch(attribute, ''))
@@ -253,7 +260,7 @@ class Project
     oe, s = Open3.capture2e(*rsync_args)
     raise oe unless s.success?
 
-    save_new_scripts
+    save_new_launchers
   rescue StandardError => e
     errors.add(:save, "Failed to sync template: #{e.message}")
     false
@@ -262,13 +269,13 @@ class Project
   # When copying a project from a template, we need new Launcher objects
   # that point to the _new_ project directory, not the template's directory.
   # This creates them _and_ serializes them to yml in the new directory.
-  def save_new_scripts
-    dir = Launcher.scripts_dir(template)
-    Dir.glob("#{dir}/*/form.yml").map do |script_yml|
-      Launcher.from_yaml(script_yml, project_dataroot)
-    end.map do |script|
-      saved_successfully = script.save
-      errors.add(:save, script.errors.full_messages) unless saved_successfully
+  def save_new_launchers
+    dir = Launcher.launchers_dir(template)
+    Dir.glob("#{dir}/*/form.yml").map do |launcher_yml|
+      Launcher.from_yaml(launcher_yml, project_dataroot)
+    end.map do |launcher|
+      saved_successfully = launcher.save
+      errors.add(:save, launcher.errors.full_messages) unless saved_successfully
 
       saved_successfully
     end.all? do |saved_successfully|
@@ -279,7 +286,7 @@ class Project
   def rsync_args
     [
       'rsync', '-rltp',
-      '--exclude', 'scripts/*',
+      '--exclude', 'launchers/*',
       '--exclude', '.ondemand/job_log.yml',
       "#{template}/", project_dataroot.to_s
     ]
